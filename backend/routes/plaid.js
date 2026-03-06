@@ -136,28 +136,6 @@ router.get('/sync', async (req, res) => {
   res.json({ transactions: allTransactions });
 });
 
-// ── POST /plaid/sandbox/inject ─────────────────────────────────────────────────
-// Injects a fake transaction with location data for testing city-matching logic.
-// Body: { merchant, amount, date, city, country, currency }
-router.post('/sandbox/inject', (req, res) => {
-  const { merchant = 'Test Merchant', amount = 25.00, date, city, country = 'FR', currency = 'EUR' } = req.body;
-  const txDate = date || new Date().toISOString().slice(0, 10);
-  const tx = {
-    transaction_id: `test-${Date.now()}`,
-    merchant_name: merchant,
-    name: merchant,
-    amount,
-    iso_currency_code: currency,
-    date: txDate,
-    personal_finance_category: { primary: 'FOOD_AND_DRINK', detailed: 'FOOD_AND_DRINK_RESTAURANTS' },
-    location: { city: city || null, region: null, country, lat: null, lon: null },
-    institution_name: 'Test Bank',
-  };
-  db.addTestTransaction(tx);
-  console.log(`Test transaction injected: ${merchant} in ${city} on ${txDate}`);
-  res.json({ success: true, transaction: tx });
-});
-
 // ── POST /plaid/webhook ────────────────────────────────────────────────────────
 router.post('/webhook', async (req, res) => {
   res.sendStatus(200);
