@@ -8,17 +8,15 @@
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
-}
+    @AppStorage("hasConsented") private var hasConsented = false
 
-#Preview {
-    ContentView()
+    var body: some View {
+        if hasConsented {
+            TripsListView()
+        } else {
+            ConsentView {
+                hasConsented = true
+            }
+        }
+    }
 }

@@ -1,0 +1,18 @@
+# Backend
+backend/node_modules/
+backend/.env
+backend/vacation_tracker.json
+backend/vacation_tracker.sqlite
+
+# macOS
+.DS_Store
+
+# Xcode
+*.xcuserstate
+xcuserdata/
+DerivedData/
+*.xccheckout
+*.moved-aside
+
+# MCP
+.mcp.json
