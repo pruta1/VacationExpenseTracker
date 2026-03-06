@@ -1,86 +1,129 @@
-const fs   = require('fs');
-const path = require('path');
+// Persistent store backed by Upstash Redis (if configured) or in-memory only.
+// Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN in your env to enable persistence.
 
-const DB_PATH = path.join(__dirname, 'vacation_tracker.json');
+const REDIS_URL   = process.env.UPSTASH_REDIS_REST_URL;
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
+const DB_KEY      = 'vacation_tracker_db';
 
-// Load or initialise the JSON store
-function load() {
-  if (fs.existsSync(DB_PATH)) {
-    try { return JSON.parse(fs.readFileSync(DB_PATH, 'utf8')); } catch {}
+let store       = { device_tokens: [], plaid_items: [], test_transactions: [] };
+let initialized = false;
+
+// ── Redis helpers ──────────────────────────────────────────────────────────────
+
+async function redisGet(key) {
+  if (!REDIS_URL) return null;
+  try {
+    const r = await fetch(`${REDIS_URL}/get/${key}`, {
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}` },
+    });
+    const { result } = await r.json();
+    return result;
+  } catch (err) {
+    console.error('Redis GET error:', err.message);
+    return null;
   }
-  return { device_tokens: [], plaid_items: [] };
 }
 
-function save(data) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+async function redisSet(key, value) {
+  if (!REDIS_URL) return;
+  try {
+    await fetch(`${REDIS_URL}/set/${key}`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${REDIS_TOKEN}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify(value),
+    });
+  } catch (err) {
+    console.error('Redis SET error:', err.message);
+  }
+}
+
+// ── Init & persist ─────────────────────────────────────────────────────────────
+
+async function init() {
+  if (initialized) return;
+  initialized = true;
+  const json = await redisGet(DB_KEY);
+  if (json) {
+    try { store = JSON.parse(json); } catch {}
+  }
+  store.device_tokens     = store.device_tokens     || [];
+  store.plaid_items       = store.plaid_items       || [];
+  store.test_transactions = store.test_transactions || [];
+  if (!REDIS_URL) console.warn('⚠️  Upstash Redis not configured — data will not persist across restarts');
+}
+
+async function persist() {
+  await redisSet(DB_KEY, JSON.stringify(store));
 }
 
 // ── device_tokens ──────────────────────────────────────────────────────────────
 
-function upsertDeviceToken(token) {
-  const data = load();
-  if (!data.device_tokens.includes(token)) {
-    data.device_tokens.push(token);
-    save(data);
+async function upsertDeviceToken(token) {
+  await init();
+  if (!store.device_tokens.includes(token)) {
+    store.device_tokens.push(token);
+    await persist();
   }
 }
 
-function allDeviceTokens() {
-  return load().device_tokens;
+async function allDeviceTokens() {
+  await init();
+  return store.device_tokens;
 }
 
 // ── plaid_items ────────────────────────────────────────────────────────────────
 
-function upsertPlaidItem({ access_token, item_id, institution_name }) {
-  const data = load();
-  const idx  = data.plaid_items.findIndex(i => i.item_id === item_id);
+async function upsertPlaidItem({ access_token, item_id, institution_name }) {
+  await init();
+  const idx   = store.plaid_items.findIndex(i => i.item_id === item_id);
   const entry = {
     access_token,
     item_id,
     institution_name: institution_name || 'Bank',
-    cursor: idx >= 0 ? data.plaid_items[idx].cursor : null,
-    created_at: idx >= 0 ? data.plaid_items[idx].created_at : new Date().toISOString(),
+    cursor:     idx >= 0 ? store.plaid_items[idx].cursor     : null,
+    created_at: idx >= 0 ? store.plaid_items[idx].created_at : new Date().toISOString(),
   };
-  if (idx >= 0) data.plaid_items[idx] = entry;
-  else data.plaid_items.push(entry);
-  save(data);
+  if (idx >= 0) store.plaid_items[idx] = entry;
+  else store.plaid_items.push(entry);
+  await persist();
   return entry;
 }
 
-function allPlaidItems() {
-  return load().plaid_items;
+async function allPlaidItems() {
+  await init();
+  return store.plaid_items;
 }
 
-function getPlaidItem(item_id) {
-  return load().plaid_items.find(i => i.item_id === item_id) || null;
+async function getPlaidItem(item_id) {
+  await init();
+  return store.plaid_items.find(i => i.item_id === item_id) || null;
 }
 
-function updateCursor(item_id, cursor) {
-  const data = load();
-  const item = data.plaid_items.find(i => i.item_id === item_id);
-  if (item) { item.cursor = cursor; save(data); }
+async function updateCursor(item_id, cursor) {
+  await init();
+  const item = store.plaid_items.find(i => i.item_id === item_id);
+  if (item) { item.cursor = cursor; await persist(); }
 }
 
-function deletePlaidItem(item_id) {
-  const data = load();
-  data.plaid_items = data.plaid_items.filter(i => i.item_id !== item_id);
-  save(data);
+async function deletePlaidItem(item_id) {
+  await init();
+  store.plaid_items = store.plaid_items.filter(i => i.item_id !== item_id);
+  await persist();
 }
 
-// ── test_transactions (sandbox injection) ──────────────────────────────────────
+// ── test_transactions ──────────────────────────────────────────────────────────
 
-function addTestTransaction(tx) {
-  const data = load();
-  if (!data.test_transactions) data.test_transactions = [];
-  data.test_transactions.push(tx);
-  save(data);
+async function addTestTransaction(tx) {
+  await init();
+  store.test_transactions.push(tx);
+  await persist();
 }
 
-function popTestTransactions() {
-  const data = load();
-  const txs = data.test_transactions || [];
-  data.test_transactions = [];
-  save(data);
+async function popTestTransactions() {
+  await init();
+  const txs = store.test_transactions || [];
+  store.test_transactions = [];
+  await persist();
   return txs;
 }
 

@@ -1,6 +1,6 @@
 const express = require('express');
 const router  = express.Router();
-const { PlaidApi, PlaidEnvironments, Configuration, Products, CountryCode } = require('plaid');
+const { PlaidApi, PlaidEnvironments, Configuration } = require('plaid');
 const db = require('../db');
 
 // ── Plaid client ───────────────────────────────────────────────────────────────
@@ -33,7 +33,7 @@ async function sendSilentPushToAll(payload = {}) {
   const provider = buildAPNsProvider();
   if (!provider) { console.log('APNs not configured — skipping silent push'); return; }
   const apn    = require('apn');
-  const tokens = db.allDeviceTokens();
+  const tokens = await db.allDeviceTokens();
   if (!tokens.length) return;
 
   const note = new apn.Notification();
@@ -75,7 +75,7 @@ router.post('/exchange-token', async (req, res) => {
   try {
     const response = await plaidClient.itemPublicTokenExchange({ public_token });
     const { access_token, item_id } = response.data;
-    db.upsertPlaidItem({ access_token, item_id, institution_name });
+    await db.upsertPlaidItem({ access_token, item_id, institution_name });
     res.json({ success: true, item_id, institution_name: institution_name || 'Bank' });
   } catch (err) {
     console.error('exchange-token:', JSON.stringify(err.response?.data) || err.message);
@@ -84,23 +84,23 @@ router.post('/exchange-token', async (req, res) => {
 });
 
 // ── GET /plaid/items ───────────────────────────────────────────────────────────
-router.get('/items', (req, res) => {
-  const items = db.allPlaidItems().map(({ access_token, cursor, ...safe }) => safe);
+router.get('/items', async (req, res) => {
+  const items = (await db.allPlaidItems()).map(({ access_token, cursor, ...safe }) => safe);
   res.json(items);
 });
 
 // ── DELETE /plaid/items/:itemId ────────────────────────────────────────────────
 router.delete('/items/:itemId', async (req, res) => {
-  const item = db.getPlaidItem(req.params.itemId);
+  const item = await db.getPlaidItem(req.params.itemId);
   if (!item) return res.status(404).json({ error: 'Not found' });
   try { await plaidClient.itemRemove({ access_token: item.access_token }); } catch {}
-  db.deletePlaidItem(req.params.itemId);
+  await db.deletePlaidItem(req.params.itemId);
   res.json({ success: true });
 });
 
 // ── GET /plaid/sync ────────────────────────────────────────────────────────────
 router.get('/sync', async (req, res) => {
-  const items = db.allPlaidItems();
+  const items = await db.allPlaidItems();
   const allTransactions = [];
 
   for (const item of items) {
@@ -120,7 +120,7 @@ router.get('/sync', async (req, res) => {
         }
         cursor  = data.next_cursor;
         hasMore = data.has_more;
-        db.updateCursor(item.item_id, cursor);
+        await db.updateCursor(item.item_id, cursor);
       } catch (err) {
         console.error(`Sync error for ${item.item_id}:`, JSON.stringify(err.response?.data) || err.message);
         break;
@@ -128,11 +128,10 @@ router.get('/sync', async (req, res) => {
     }
   }
 
-  // Include any sandbox test transactions (popped so they only appear once)
-  const testTxs = db.popTestTransactions();
+  const testTxs = await db.popTestTransactions();
   allTransactions.push(...testTxs);
 
-  console.log(`Synced ${allTransactions.length} new transaction(s) (${testTxs.length} test)`);
+  console.log(`Synced ${allTransactions.length} new transaction(s)`);
   res.json({ transactions: allTransactions });
 });
 

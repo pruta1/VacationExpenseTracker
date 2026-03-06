@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express    = require('express');
 const cors       = require('cors');
+const rateLimit  = require('express-rate-limit');
 const db         = require('./db');
 const plaidRoutes = require('./routes/plaid');
 
@@ -9,6 +10,15 @@ const app = express();
 // ── CORS: only allow requests from the app (no browser origin for native iOS) ─
 app.use(cors({ origin: false }));
 app.use(express.json());
+
+// ── Rate limiting: max 60 requests per 15 minutes per IP ──────────────────────
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+}));
 
 // ── API secret check ───────────────────────────────────────────────────────────
 const APP_SECRET = process.env.APP_SECRET;
@@ -24,10 +34,10 @@ app.use((req, res, next) => {
 
 app.use('/plaid', plaidRoutes);
 
-app.post('/device-token', (req, res) => {
+app.post('/device-token', async (req, res) => {
   const { token } = req.body;
   if (!token) return res.status(400).json({ error: 'token required' });
-  db.upsertDeviceToken(token);
+  await db.upsertDeviceToken(token);
   res.json({ success: true });
 });
 
