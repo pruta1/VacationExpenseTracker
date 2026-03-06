@@ -46,9 +46,8 @@ struct PlaidTransaction: Decodable {
 final class PlaidService {
 
     // ── Configuration ──────────────────────────────────────────────────────────
-    /// Change this to your server URL before building for production.
-    /// For local development, make sure the backend is running: `cd backend && npm start`
-    static let backendURL = "https://deandrea-unplotting-pithily.ngrok-free.dev"
+    static let backendURL  = "https://vacationexpensetracker.onrender.com"
+    private static let appSecret = "d5cf4680a85d3db2087867abbaf2fab15cf7283bee0fe7c5c88fb44bb18b65ff"
 
     // ── State ──────────────────────────────────────────────────────────────────
     var isSyncing = false
@@ -63,12 +62,12 @@ final class PlaidService {
         return URLSession(configuration: config)
     }()
 
-    // ── Shared request builder (adds ngrok bypass header) ─────────────────────
+    // ── Shared request builder ─────────────────────────────────────────────────
     private static func makeRequest(_ url: URL, method: String = "GET") -> URLRequest {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("true", forHTTPHeaderField: "ngrok-skip-browser-warning")
+        req.setValue(appSecret, forHTTPHeaderField: "x-app-secret")
         return req
     }
 
